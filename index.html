@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Drywall Pan | The Mud Box Rush</title>
+    <!-- Load Tailwind CSS for utility classes and responsiveness -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    
+    <style>
+        /* Define custom styles for the construction/hazard theme */
+        :root {
+            --bg-dark: #121212; /* Dark, industrial background */
+            --pan-metal: #B0BEC5; /* Metallic Gray for the Pan */
+            --mud-tan: #C2B280;  /* Light Brown/Tan for the Mud Box */
+            --hazard-yellow: #FFEB3B; /* Hazard/Warning Yellow for UI and accents */
+        }
+        
+        body {
+            font-family: 'Press Start 2P', monospace; /* Retro arcade font */
+            background-color: var(--bg-dark);
+            color: var(--hazard-yellow);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 10px;
+            margin: 0;
+            overflow: hidden; /* Prevent body scroll */
+        }
+
+        .game-container {
+            border: 4px solid var(--hazard-yellow);
+            box-shadow: 0 0 15px var(--hazard-yellow), inset 0 0 5px var(--hazard-yellow);
+            padding: 1rem;
+            background-color: #0d0d0d;
+            border-radius: 12px;
+            width: 100%;
+            max-width: 480px; /* Max width for a clean game screen */
+            margin-top: 10px; /* Ensure space on top for small screens */
+            margin-bottom: 10px;
+        }
+
+        #gameCanvas {
+            display: block;
+            margin: 0 auto;
+            background-color: #1a1a1a;
+            border: 2px solid var(--pan-metal);
+            box-shadow: 0 0 8px var(--pan-metal);
+            border-radius: 4px;
+        }
+
+        .neon-text {
+            text-shadow: 0 0 7px var(--hazard-yellow), 0 0 10px var(--hazard-yellow);
+            color: var(--hazard-yellow);
+        }
+
+        .neon-button {
+            background-color: var(--bg-dark);
+            border: 2px solid var(--hazard-yellow);
+            color: var(--hazard-yellow);
+            text-shadow: 0 0 5px var(--hazard-yellow);
+            transition: all 0.1s;
+            padding: 0.5rem 1rem;
+            font-size: 0.75rem; 
+            border-radius: 6px;
+            box-shadow: 0 0 8px var(--hazard-yellow);
+            cursor: pointer;
+        }
+
+        .neon-button:hover {
+            background-color: var(--hazard-yellow);
+            color: var(--bg-dark);
+            box-shadow: 0 0 15px var(--hazard-yellow);
+        }
+
+        /* Large directional buttons for mobile */
+        .dir-button {
+            width: 80px;
+            height: 80px;
+            font-size: 1.5rem;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 5px;
+            padding: 0;
+            /* Override to make buttons easier to tap */
+            box-shadow: 0 0 10px rgba(255, 235, 59, 0.5); 
+        }
+        
+        /* Ensure the directional pad layout works on mobile */
+        .d-pad {
+            display: grid;
+            grid-template-areas:
+                ". up ."
+                "left . right"
+                ". down .";
+            width: 240px; 
+            margin: 20px auto;
+        }
+        
+        .d-pad .up { grid-area: up; }
+        .d-pad .down { grid-area: down; }
+        .d-pad .left { grid-area: left; }
+        .d-pad .right { grid-area: right; }
+        
+        /* Game Over message styling */
+        #game-message {
+            border-color: #dc2626 !important; /* Tailwind red-600 */
+            box-shadow: 0 0 20px rgba(220, 38, 38, 0.7) !important;
+        }
+        
+        #message-box h2 {
+            color: #f87171; /* Tailwind red-400 */
+        }
+    </style>
+</head>
+<body>
+
+    <div class="game-container">
+        <h1 class="text-xl text-center mb-4 neon-text">DRYWALL PAN: MUD RUSH</h1>
+
+        <div id="status-display" class="text-center text-sm mb-4 h-6">
+            Boxes Collected: <span id="score">0</span>
+        </div>
+
+        <canvas id="gameCanvas"></canvas>
+
+        <div id="message-box" class="fixed inset-0 bg-black bg-opacity-75 hidden flex flex-col justify-center items-center p-4 z-10">
+            <div id="game-message" class="text-center p-8 bg-gray-900 border-4 border-red-600 rounded-lg shadow-2xl">
+                <h2 class="text-3xl mb-4">PAN OVERHEATED!</h2>
+                <p id="final-score" class="text-xl mb-6 neon-text"></p>
+                <button class="neon-button text-lg" onclick="startGame()">RELOAD_JOB</button>
+            </div>
+        </div>
+
+        <!-- Touch Controls / D-Pad for Mobile -->
+        <div class="d-pad">
+            <button class="neon-button dir-button up" onclick="handleTouchDirection('up')">▲</button>
+            <button class="neon-button dir-button left" onclick="handleTouchDirection('left')">◀</button>
+            <button class="neon-button dir-button right" onclick="handleTouchDirection('right')">►</button>
+            <button class="neon-button dir-button down" onclick="handleTouchDirection('down')">▼</button>
+        </div>
+        
+    </div>
+
+    <script>
+        // --- GAME CONSTANTS ---
+        const CANVAS_SIZE = 400; // 400x400 pixels
+        const GRID_SIZE = 20;    // 20x20 grid
+        const TILE_SIZE = CANVAS_SIZE / GRID_SIZE; // 20 pixels per tile
+        const INITIAL_SPEED = 150; // Milliseconds per move
+        const MIN_SPEED = 50; // Fastest speed allowed
+        const SPEED_INCREMENT = 5; // How much speed increases per score
+
+        // --- GAME STATE ---
+        let snake = [];
+        let food = { x: 0, y: 0 };
+        let dx = TILE_SIZE; // Velocity X (starts moving right)
+        let dy = 0;         // Velocity Y
+        let score = 0;
+        let gameLoopId;
+        let gameSpeed = INITIAL_SPEED;
+        let isGameOver = true;
+        let canvas, ctx;
+        let changingDirection = false; // Flag to prevent rapid opposite direction changes
+
+        // --- COLORS (Themed) ---
+        const PAN_METAL = '#B0BEC5';
+        const MUD_TAN = '#C2B280';
+        const MUD_BOX_LID = '#6D5B4D'; // Darker part of the box
+        const PAN_HANDLE = '#455A64'; // Darker metallic color for definition
+        const HAZARD_YELLOW = '#FFEB3B';
+
+        // --- INITIALIZATION ---
+        function initializeCanvas() {
+            canvas = document.getElementById('gameCanvas');
+            ctx = canvas.getContext('2d');
+            canvas.width = CANVAS_SIZE;
+            canvas.height = CANVAS_SIZE;
+            
+            // Set up keyboard event listener
+            document.addEventListener('keydown', changeDirection);
+
+            // Start the game initially
+            startGame();
+        }
+
+        window.onload = initializeCanvas;
+
+        // --- GAME LOGIC ---
+
+        function startGame() {
+            // Clear any existing game loop
+            if (gameLoopId) {
+                clearInterval(gameLoopId);
+            }
+            
+            // Reset state
+            isGameOver = false;
+            score = 0;
+            gameSpeed = INITIAL_SPEED;
+            dx = TILE_SIZE; 
+            dy = 0;
+            changingDirection = false;
+
+            // Initial pan/snake: 3 segments starting from the middle-left
+            snake = [
+                { x: 10 * TILE_SIZE, y: 10 * TILE_SIZE },
+                { x: 9 * TILE_SIZE, y: 10 * TILE_SIZE },
+                { x: 8 * TILE_SIZE, y: 10 * TILE_SIZE }
+            ];
+
+            // Hide Game Over message
+            document.getElementById('message-box').classList.add('hidden');
+            document.getElementById('score').textContent = score;
+
+            // Generate first food
+            generateFood();
+
+            // Start the game loop
+            gameLoopId = setInterval(main, gameSpeed);
+        }
+
+        function main() {
+            if (isGameOver) {
+                // If game is over, the loop should stop, but the check is inside update
+                clearInterval(gameLoopId);
+                return;
+            }
+
+            changingDirection = false;
+            
+            // Update and then draw
+            update();
+            draw();
+        }
+
+        function update() {
+            // Check for collision
+            if (hasGameEnded()) {
+                gameOver();
+                return;
+            }
+
+            // Create the new head
+            const head = { x: snake[0].x + dx, y: snake[0].y + dy };
+
+            // Add new head to the beginning of the snake array
+            snake.unshift(head);
+
+            // Check if the snake ate the food
+            if (snake[0].x === food.x && snake[0].y === food.y) {
+                // Food was eaten, increment score, generate new food, and increase speed
+                score++;
+                document.getElementById('score').textContent = score;
+                generateFood();
+                
+                // Increase speed (make sure it doesn't go below MIN_SPEED)
+                gameSpeed = Math.max(MIN_SPEED, gameSpeed - SPEED_INCREMENT);
+                
+                // Reset the game loop with the new speed
+                clearInterval(gameLoopId);
+                gameLoopId = setInterval(main, gameSpeed);
+
+                // Do NOT remove the tail (snake grows)
+            } else {
+                // Food was NOT eaten, remove the tail (snake moves normally)
+                snake.pop();
+            }
+        }
+
+        function draw() {
+            // Clear the canvas
+            ctx.fillStyle = '#1a1a1a'; // Canvas background color
+            ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+
+            // --- Draw the food (Box of Mud) ---
+            ctx.fillStyle = MUD_TAN;
+            ctx.shadowColor = HAZARD_YELLOW;
+            ctx.shadowBlur = 8; // Slight glow around the mud box
+            ctx.fillRect(food.x, food.y, TILE_SIZE, TILE_SIZE);
+            
+            // Add a dark line to suggest a box lid or top edge
+            ctx.strokeStyle = MUD_BOX_LID;
+            ctx.lineWidth = 2;
+            ctx.strokeRect(food.x, food.y, TILE_SIZE, TILE_SIZE / 4);
+            ctx.shadowBlur = 0; // Reset shadow
+
+            // --- Draw the snake (Drywall Pan) ---
+            ctx.fillStyle = PAN_METAL;
+            ctx.shadowColor = PAN_METAL;
+            ctx.shadowBlur = 12; // Brighter shadow for the pan head
+            
+            snake.forEach((segment, index) => {
+                // Draw the segment (the pan body)
+                ctx.fillRect(segment.x, segment.y, TILE_SIZE, TILE_SIZE);
+                
+                // Add a dark border/line to represent the pan's edge/handle segment
+                ctx.strokeStyle = PAN_HANDLE; 
+                ctx.lineWidth = 1;
+                ctx.strokeRect(segment.x, segment.y, TILE_SIZE, TILE_SIZE);
+
+                // Reduce the shadow intensity for the body segments (the mud trail)
+                if (index > 0) {
+                    ctx.shadowBlur = 4;
+                }
+            });
+            
+            // Clear shadow for next draw cycle
+            ctx.shadowBlur = 0;
+        }
+
+        function generateFood() {
+            let newFood;
+            do {
+                newFood = {
+                    // Generate random coordinates within the grid
+                    x: Math.floor(Math.random() * GRID_SIZE) * TILE_SIZE,
+                    y: Math.floor(Math.random() * GRID_SIZE) * TILE_SIZE
+                };
+            } while (isFoodOnSnake(newFood)); // Keep generating until not on snake
+
+            food = newFood;
+        }
+
+        function isFoodOnSnake(potentialFood) {
+            // Check if the potential food location overlaps with any snake segment
+            return snake.some(segment => segment.x === potentialFood.x && segment.y === potentialFood.y);
+        }
+
+        function hasGameEnded() {
+            const head = snake[0];
+            
+            // 1. Collision with itself (head hitting any body segment except the first one)
+            for (let i = 4; i < snake.length; i++) {
+                if (head.x === snake[i].x && head.y === snake[i].y) return true;
+            }
+
+            // 2. Collision with wall
+            const hitLeftWall = head.x < 0;
+            const hitRightWall = head.x >= CANVAS_SIZE;
+            const hitTopWall = head.y < 0;
+            const hitBottomWall = head.y >= CANVAS_SIZE;
+
+            return hitLeftWall || hitRightWall || hitTopWall || hitBottomWall;
+        }
+
+        function gameOver() {
+            isGameOver = true;
+            clearInterval(gameLoopId);
+            
+            // Display game over message
+            document.getElementById('final-score').textContent = `Boxes Collected: ${score}`;
+            document.getElementById('message-box').classList.remove('hidden');
+        }
+
+
+        // --- INPUT HANDLERS ---
+
+        // Handles both keyboard and touch inputs
+        function changeDirection(event) {
+            if (changingDirection || isGameOver) return;
+            changingDirection = true; // Set flag to prevent double input in one frame
+
+            let newDx = dx;
+            let newDy = dy;
+            const key = event.type === 'keydown' ? event.key : event; // Use event.key or the passed string
+
+            switch(key) {
+                case 'ArrowLeft':
+                case 'left':
+                    if (dx === 0) { newDx = -TILE_SIZE; newDy = 0; }
+                    break;
+                case 'ArrowUp':
+                case 'up':
+                    if (dy === 0) { newDx = 0; newDy = -TILE_SIZE; }
+                    break;
+                case 'ArrowRight':
+                case 'right':
+                    if (dx === 0) { newDx = TILE_SIZE; newDy = 0; }
+                    break;
+                case 'ArrowDown':
+                case 'down':
+                    if (dy === 0) { newDx = 0; newDy = TILE_SIZE; }
+                    break;
+                default:
+                    changingDirection = false;
+                    return; // Do nothing if it's not a relevant key
+            }
+
+            // Update only if a valid, non-opposite direction was chosen
+            if (newDx !== dx || newDy !== dy) {
+                dx = newDx;
+                dy = newDy;
+            } else {
+                 changingDirection = false;
+            }
+        }
+
+        // Dedicated function for touch/button input
+        function handleTouchDirection(direction) {
+            // Pass the direction string to the main changeDirection handler
+            changeDirection(direction);
+        }
+
+    </script>
+</body>
+</html>
+
